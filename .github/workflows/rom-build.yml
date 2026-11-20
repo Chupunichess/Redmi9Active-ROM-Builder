@@ -52,12 +52,17 @@ jobs:
           # Actions supplies its own Node runtime; Android uses JDK 11.
           sudo rm -rf /opt/hostedtoolcache/*
           sudo rm -rf /home/runner/.cache/* /root/.cache/*
-          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
           docker system prune --all --force --volumes || true
           sudo apt-get clean
+          sudo rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/*
+          sudo rm -rf /var/cache/snapd/* /var/tmp/*
+          find /tmp -xdev -type f -mmin +120 -delete 2>/dev/null || true
 
-          echo "Disk after cleanup:"
+          echo "Disk after aggressive runner cleanup:"
           df -h /
+          echo "Largest top-level directories:"
+          sudo du -xhd1 / 2>/dev/null | sort -h | tail -15
           echo "CPU and memory:"
           nproc
           free -h
@@ -148,6 +153,22 @@ jobs:
           echo "Disk after dependencies:"
           df -h /
 
+      - name: Reclaim package and temporary caches before compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+          rm -rf "$HOME/.cache/pip" "$HOME/.cache/yarn" "$HOME/.cache/go-build" \
+            "$HOME/.npm" "$HOME/.gradle/caches" "$HOME/.cache/ccache"
+          find /tmp -xdev -type f -mmin +120 -delete 2>/dev/null || true
+          sudo journalctl --vacuum-size=100M || true
+          echo "Disk after package/cache cleanup:"
+          df -h /
+          echo "Workspace and filesystem usage:"
+          du -sh "$WORKSPACE" "$GITHUB_WORKSPACE" 2>/dev/null || true
+          df -i /
+
       - name: Check free disk before compilation
         shell: bash
         run: |
@@ -163,16 +184,77 @@ jobs:
       - name: Configure and compile ROM
         shell: bash
         run: |
-          # Android envsetup uses intentionally unset shell variables.
-          # Keep errexit and pipefail, but do not enable nounset (-u).
           set -eo pipefail
           cd "$WORKSPACE"
           export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
           export PATH="$JAVA_HOME/bin:$PATH"
           export USE_CCACHE=0
+
+          # Only disposable caches are removed. Source, .repo, Ninja intermediates,
+          # object files and product output are deliberately preserved.
+          CLEANUP_SCRIPT="$RUNNER_TEMP/lineage-safe-disk-cleanup.sh"
+          cat > "$CLEANUP_SCRIPT" <<'CLEANUP'
+          #!/usr/bin/env bash
+          set +e
+          echo "=== Safe disk cleanup: $(date -u +%FT%TZ) ==="
+          df -h /
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+          rm -rf "$HOME/.cache/pip" "$HOME/.cache/yarn" "$HOME/.cache/go-build" \
+            "$HOME/.npm" "$HOME/.gradle/caches" "$HOME/.cache/ccache"
+          find /tmp -xdev -type f -mmin +120 -delete 2>/dev/null
+          find /var/tmp -xdev -type f -mmin +120 -delete 2>/dev/null
+          sudo journalctl --vacuum-size=100M
+          echo "=== Disk after safe cleanup ==="
+          df -h /
+          CLEANUP
+          chmod +x "$CLEANUP_SCRIPT"
+          export CLEANUP_SCRIPT
+
           source build/envsetup.sh
           lunch lineage_blossom-userdebug
-          mka bacon -j"$BUILD_JOBS" 2>&1 | tee "$GITHUB_WORKSPACE/rom-build.log"
+
+          # Check free space every minute, including during long quiet periods.
+          GUARD_ACTIVE="$RUNNER_TEMP/lineage-disk-guard-active"
+          touch "$GUARD_ACTIVE"
+          (
+            while [[ -f "$GUARD_ACTIVE" ]]; do
+              sleep 60
+              [[ -f "$GUARD_ACTIVE" ]] || break
+              read -r AVAILABLE_KB USED_PCT < <(df -Pk / | awk 'NR==2 {print $4, $5}')
+              AVAILABLE_GB=$((AVAILABLE_KB / 1024 / 1024))
+              USED_NUMBER=$(printf '%s' "$USED_PCT" | tr -d '%')
+              echo "DISK GUARD: $AVAILABLE_GB GiB free, $USED_PCT used"
+              if (( AVAILABLE_GB < 55 || USED_NUMBER >= 88 )); then
+                echo "DISK GUARD: threshold reached; reclaiming disposable caches only."
+                bash "$CLEANUP_SCRIPT"
+              fi
+            done
+          ) &
+          GUARD_PID=$!
+          trap 'rm -f "$GUARD_ACTIVE"; kill "$GUARD_PID" 2>/dev/null || true' EXIT
+
+          echo "Disk immediately before compilation:"
+          df -h /
+          echo "Starting milestone cleanup at 25%, 50%, 75%, and 90%."
+          mka bacon -j"$BUILD_JOBS" 2>&1 | tee "$GITHUB_WORKSPACE/rom-build.log" | \
+            python3 -u -c '
+          import os, re, subprocess, sys
+          milestones = [25, 50, 75, 90]
+          next_index = 0
+          cleanup = os.environ["CLEANUP_SCRIPT"]
+          for line in sys.stdin:
+              sys.stdout.write(line)
+              sys.stdout.flush()
+              match = re.search(r"\[\s*(\d+)%", line)
+              if match and next_index < len(milestones):
+                  percent = int(match.group(1))
+                  if percent >= milestones[next_index]:
+                      target = milestones[next_index]
+                      print(f"\nDISK MILESTONE: {target}% reached; cleaning disposable caches.", flush=True)
+                      subprocess.run(["bash", cleanup], check=False)
+                      next_index += 1
+          '
 
       - name: Verify and checksum ROM package
         shell: bash
