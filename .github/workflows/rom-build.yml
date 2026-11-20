@@ -20,7 +20,7 @@ concurrency:
 jobs:
   build:
     name: Sync and compile LineageOS 20 for blossom
-    runs-on: depot-ubuntu-22.04-64
+    runs-on: depot-ubuntu-24.04-64
     timeout-minutes: 360
     env:
       WORKSPACE: ${{ github.workspace }}/../lineage20-src
