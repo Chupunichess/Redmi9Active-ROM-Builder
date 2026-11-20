@@ -98,6 +98,33 @@ jobs:
           du -sh "$WORKSPACE"
           repo list | tee "$GITHUB_WORKSPACE/synced-projects.txt"
 
+      - name: Point LineageOS to the supplied prebuilt kernel headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_BOARD_CONFIG="$WORKSPACE/device/xiaomi/blossom/BoardConfig.mk"
+          KERNEL_HEADERS="$WORKSPACE/device/xiaomi/blossom-kernel/headers"
+          test -f "$DEVICE_BOARD_CONFIG"
+          test -f "$KERNEL_HEADERS/Makefile"
+          python3 - "$DEVICE_BOARD_CONFIG" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          content = path.read_text()
+          setting = "TARGET_KERNEL_SOURCE := device/xiaomi/blossom-kernel/headers"
+          if setting not in content:
+              anchor = "# Kernel\\n"
+              if anchor not in content:
+                  raise SystemExit("Could not find the kernel section in BoardConfig.mk")
+              content = content.replace(anchor, anchor + setting + "\\n", 1)
+              path.write_text(content)
+          print("Configured TARGET_KERNEL_SOURCE to use the device's supplied prebuilt-kernel headers wrapper.")
+          PY
+          grep -n "TARGET_KERNEL_SOURCE" "$DEVICE_BOARD_CONFIG"
+          echo "Header wrapper Makefile:"
+          sed -n '1,40p' "$KERNEL_HEADERS/Makefile"
+
       - name: Install Android build dependencies
         shell: bash
         run: |
