@@ -100,7 +100,9 @@ jobs:
       - name: Configure and compile ROM
         shell: bash
         run: |
-          set -euo pipefail
+          # Android envsetup uses intentionally unset shell variables.
+          # Keep errexit and pipefail, but do not enable nounset (-u).
+          set -eo pipefail
           cd "$WORKSPACE"
           export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
           export PATH="$JAVA_HOME/bin:$PATH"
