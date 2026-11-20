@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
-      WORKSPACE: ${{ runner.temp }}/lineage20-src
+      WORKSPACE: ${{ github.workspace }}/../lineage20-src
       ROM_MANIFEST_URL: https://github.com/LineageOS/android.git
       ROM_BRANCH: lineage-20
       BUILD_JOBS: "2"
