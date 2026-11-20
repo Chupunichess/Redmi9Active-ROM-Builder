@@ -130,14 +130,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git git-lfs gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses-dev libncurses5 libtinfo5 \
+            git git-lfs gnupg gperf imagemagick lib32readline-dev \
+            lib32z1-dev libelf-dev liblz4-tool libncurses-dev libncurses-dev:i386 libtinfo-dev libtinfo-dev:i386 \
             libssl-dev libxml2 libxml2-utils lzop pngcrush python-is-python3 rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev openjdk-11-jdk
           git lfs install
           java -version
           echo "Checking legacy Clang runtime libraries:"
-          ldconfig -p | grep -E 'lib(ncurses|tinfo)\.so\.5'
+          ldconfig -p | grep -E 'lib(ncurses|tinfo)\.so'
           echo "Checking bundled Android Clang:"
           "$WORKSPACE/prebuilts/clang/host/linux-x86/clang-3289846/bin/clang" --version
           echo "Disk after dependencies:"
