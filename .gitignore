@@ -1,0 +1,11 @@
+# Build outputs
+out/
+.repo/
+ccache/
+*.img
+*.zip
+
+# Local editor files
+.vscode/
+.idea/
+*.swp
