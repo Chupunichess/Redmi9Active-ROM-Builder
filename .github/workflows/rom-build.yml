@@ -2,178 +2,27 @@ name: LineageOS 20 ROM build
 
 on:
   workflow_dispatch:
-    inputs:
-      compile_rom:
-        description: "Compile and publish the ROM after source sync"
-        required: true
-        type: boolean
-        default: false
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - ".github/workflows/rom-build.yml"
 
 permissions:
-  contents: write
-
-concurrency:
-  group: lineage20-rom-build
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  build:
-    name: Sync and optionally build blossom
+  workflow-check:
+    name: Check workflow registration
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
-    env:
-      WORKSPACE: ${{ runner.temp }}/lineage20-src
-      ROM_MANIFEST_URL: https://github.com/LineageOS/android.git
-      ROM_BRANCH: lineage-20
-
     steps:
-      - name: Check out builder configuration
+      - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Reclaim unused runner disk space
+      - name: Report runner capacity
         shell: bash
         run: |
           set -euo pipefail
-          echo "Disk before cleanup:"
+          echo "GitHub Actions workflow parser accepted this job."
+          nproc
+          free -h
           df -h /
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/lib/android/sdk
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/.ghcup
-          docker system prune --all --force || true
-          sudo apt-get clean
-          echo "Disk after cleanup:"
-          df -h /
-
-      - name: Install repo launcher
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o repo
-          sudo install -m 0755 repo /usr/local/bin/repo
-          repo version
-
-      - name: Initialize LineageOS 20 source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$WORKSPACE"
-          cd "$WORKSPACE"
-          repo init --depth=1 -u "$ROM_MANIFEST_URL" -b "$ROM_BRANCH"
-          mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/manifests/lineage-20-blossom.xml" .repo/local_manifests/blossom.xml
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          ET.parse(".repo/local_manifests/blossom.xml")
-          print("Local blossom manifest XML is valid.")
-          PY
-
-      - name: Sync LineageOS 20 and device sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$WORKSPACE"
-          echo "Disk before repo sync:"
-          df -h /
-          repo sync -c -j2 --no-clone-bundle --no-tags --fail-fast 2>&1 | tee "$GITHUB_WORKSPACE/source-sync.log"
-          echo "Disk after repo sync:"
-          df -h /
-          echo "Workspace size:"
-          du -sh "$WORKSPACE"
-          echo "Repo metadata size:"
-          du -sh "$WORKSPACE/.repo"
-          {
-            echo "ROM branch: $ROM_BRANCH"
-            echo "Device product: lineage_blossom-userdebug"
-            echo "Workspace size:"
-            du -sh "$WORKSPACE"
-            echo "Free disk:"
-            df -h /
-            echo "Synced project count:"
-            repo list | wc -l
-          } | tee "$GITHUB_WORKSPACE/source-sync-report.txt"
-
-      - name: Check whether compilation has enough remaining disk
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          FREE_GB="$(df -BG --output=avail / | tail -n 1 | tr -dc '0-9')"
-          echo "Free disk after source sync: ${FREE_GB} GB"
-          if (( FREE_GB < 30 )); then
-            echo "::error::Less than 30 GB remains. Refusing to start compilation on this runner."
-            exit 1
-          fi
-
-      - name: Install Android build dependencies
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git git-lfs gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses-dev libssl-dev libxml2 \
-            libxml2-utils lzop pngcrush python-is-python3 rsync schedtool \
-            squashfs-tools xsltproc zip zlib1g-dev openjdk-11-jdk
-          git lfs install
-          java -version
-
-      - name: Compile LineageOS 20 for blossom
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$WORKSPACE"
-          export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-          export PATH="$JAVA_HOME/bin:$PATH"
-          export USE_CCACHE=0
-          source build/envsetup.sh
-          lunch lineage_blossom-userdebug
-          mka bacon -j2
-          find out/target/product/blossom -maxdepth 1 -type f -name '*.zip' -print
-          mapfile -t ROM_ZIPS < <(find out/target/product/blossom -maxdepth 1 -type f -name '*.zip' -size +100M)
-          if (( ${#ROM_ZIPS[@]} == 0 )); then
-            echo "::error::No ROM ZIP was produced."
-            exit 1
-          fi
-          sha256sum "${ROM_ZIPS[@]}" > ROM_SHA256SUMS.txt
-          cp ROM_SHA256SUMS.txt "$GITHUB_WORKSPACE/ROM_SHA256SUMS.txt"
-          printf '%s\n' "${ROM_ZIPS[@]}" > "$GITHUB_WORKSPACE/rom-files.txt"
-
-      - name: Publish ROM release
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_rom && success() }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: lineage20-${{ github.run_number }}
-          name: "LineageOS 20 for blossom - build ${{ github.run_number }}"
-          body: |
-            Experimental, unofficial LineageOS 20 build for the Xiaomi blossom family.
-            Intended device variant: Redmi 9 Active (cattail).
-
-            This build is experimental and has not been independently verified as bootable.
-            Verify compatibility, checksums and recovery/rollback options before flashing.
-          files: |
-            ${{ runner.temp }}/lineage20-src/out/target/product/blossom/*.zip
-            ROM_SHA256SUMS.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload source-sync diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lineage20-source-sync-diagnostics
-          path: |
-            source-sync.log
-            source-sync-report.txt
-            ROM_SHA256SUMS.txt
-          if-no-files-found: ignore
-          retention-days: 7
