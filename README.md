@@ -1,37 +1,39 @@
 # Redmi 9 Active ROM Builder
 
-Automated source validation and build orchestration for the Xiaomi Redmi 9 Active (`cattail`, MT6765).
+GitHub-based source validation and build feasibility tooling for the Xiaomi Redmi 9 Active (`cattail`), on the unified Xiaomi blossom / MT6765 device family.
 
-## Selected build candidate
+## Selected ROM candidate
 
-**LineageOS 20 (Android 13)** using the unified Xiaomi blossom device tree.
+**LineageOS 20 (Android 13)** with the unified `lineage_blossom` product.
 
-The unified product is named `lineage_blossom`; the device tree's OTA assertions include the Redmi 9 Active variant `cattail`.
+The selected device tree, kernel prebuilts, vendor blobs, MediaTek hardware repository and MediaTek vendor SELinux policy repository all have matching `lineage-20` branches. The device tree includes `cattail` in its OTA device assertions; the kernel repository supplies a prebuilt kernel, DTB, DTBO and modules.
 
-We selected this older source set because its device, kernel, vendor, MediaTek hardware and MediaTek SELinux policy repositories all have matching `lineage-20` branches. The kernel repository contains the prebuilt kernel, DTB, DTBO and loadable modules expected by the device tree. The device makefiles do not require the unresolved MiuiCamera package found in the newer crDroid 17.0 candidate.
+**Upstream warning:** the device tree is archived/discontinued. Its README says the tree may be incomplete and bugs are expected. The source audit proves that declared files and dependencies exist, not that the ROM compiles or boots.
 
-### Important upstream caveat
+## Current result
 
-The device tree README labels the project discontinued and explicitly warns that the tree may be incomplete and contain bugs. Matching source branches are a good starting point, not proof of a successful build or a bootable ROM. No flashable ZIP has been produced or tested.
+- Device-specific source audit: **passed**.
+- GitHub Actions workflow registration: **passed**.
+- Free-runner capacity check: **blocked for full Android build**.
+- Flashable ROM: **not built**.
+
+The successful device audit is [here](https://github.com/barath-207/Redmi9Active-ROM-Builder/actions/runs/44678535498). The free-runner capacity check is [here](https://github.com/barath-207/Redmi9Active-ROM-Builder/actions/runs/44678535449).
+
+The capacity workflow measured 4 CPU threads, about 15 GiB RAM and 87 GB free disk. Google's current AOSP guidance recommends at least 400 GB of free disk and 64 GB RAM for a source checkout and build. This makes a complete Android build impractical on this standard free GitHub runner. See the [AOSP build requirements](https://source.android.com/docs/setup/start/requirements).
+
+GitHub's larger hosted runners are not a free workaround: they require GitHub Team or Enterprise Cloud and are billed. See [GitHub's larger runner documentation](https://docs.github.com/en/actions/concepts/runners/larger-runners).
 
 ## Repository layout
 
-- `config/target.env`: selected ROM, product and device configuration.
-- `manifests/lineage-20-blossom.xml`: local manifest for the device-specific source repositories.
-- `scripts/audit-lineage20.sh`: reproducible shallow-clone and dependency validation.
-- `.github/workflows/device-audit.yml`: runs the source audit on GitHub Actions.
+- `.github/workflows/device-audit.yml`: verifies the selected device tree and its required files.
+- `.github/workflows/rom-build.yml`: measures runner capacity and reports whether a full build is feasible. It deliberately does not start a source sync or compile when resources are insufficient.
+- `config/target.env`: selected ROM, Android version and product configuration.
+- `manifests/lineage-20-blossom.xml`: local manifest for device-specific repositories.
+- `scripts/audit-lineage20.sh`: shallow-clones and validates the five device-specific source repositories.
 
-## Run the source audit
+## Run the checks
 
-Open **Actions → LineageOS 20 source audit → Run workflow**, or push a change to `main`.
-
-The audit clones only the device-specific repositories. It does **not** download the full Android/LineageOS source tree and does **not** compile a ROM.
-
-## GitHub-hosted runner limitation
-
-A complete Android ROM build needs far more disk space and sustained compute than a standard free GitHub-hosted runner reliably provides. This repository therefore validates sources first and does not pretend that a successful dependency audit is a successful ROM build.
-
-The next stage is to measure the actual source/build footprint and determine whether a free GitHub-only build is technically possible. No paid compute or external self-hosted hardware is assumed.
+Open **Actions** in this repository. Run **LineageOS 20 source audit** to validate device sources, or **LineageOS 20 build capacity check** to measure the available runner. Both workflows can also run automatically on relevant changes.
 
 ## Device-specific sources
 
@@ -44,6 +46,6 @@ The next stage is to measure the actual source/build footprint and determine whe
 | MediaTek vendor sepolicy | [android_device_mediatek_sepolicy_vndr](https://github.com/LineageOS/android_device_mediatek_sepolicy_vndr) | `lineage-20` |
 | ROM manifest | [LineageOS/android](https://github.com/LineageOS/android) | `lineage-20` |
 
-## Safety
+## Build status and safety
 
-A build artifact must not be treated as safe to flash merely because compilation completed. Before installation, it needs device-specific verification, checksums, recovery/boot validation and a tested rollback path.
+This repository currently does not produce a flashable ZIP. A source checkout or a successful dependency audit must not be mistaken for a completed ROM build. Before any future release is flashed, it needs verification of the target variant, image integrity, recovery/rollback path and actual boot testing.
