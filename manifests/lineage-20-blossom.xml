@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+    <remote name="github-blossom" fetch="https://github.com/" />
+
+    <project
+        name="dandelion64-Archives/android_device_xiaomi_blossom"
+        path="device/xiaomi/blossom"
+        remote="github-blossom"
+        revision="lineage-20" />
+
+    <project
+        name="dandelion64-Archives/device_xiaomi_blossom-kernel"
+        path="device/xiaomi/blossom-kernel"
+        remote="github-blossom"
+        revision="lineage-20" />
+
+    <project
+        name="dandelion64-Archives/proprietary_vendor_xiaomi_blossom"
+        path="vendor/xiaomi/blossom"
+        remote="github-blossom"
+        revision="lineage-20" />
+
+    <project
+        name="dandelion64-Archives/android_hardware_mediatek"
+        path="hardware/mediatek"
+        remote="github-blossom"
+        revision="lineage-20" />
+
+    <project
+        name="LineageOS/android_device_mediatek_sepolicy_vndr"
+        path="device/mediatek/sepolicy_vndr"
+        remote="github-blossom"
+        revision="lineage-20" />
+</manifest>
