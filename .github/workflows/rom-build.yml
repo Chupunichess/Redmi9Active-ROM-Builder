@@ -114,11 +114,9 @@ jobs:
           content = path.read_text()
           setting = "TARGET_KERNEL_SOURCE := device/xiaomi/blossom-kernel/headers"
           if setting not in content:
-              anchor = "# Kernel\\n"
-              if anchor not in content:
-                  raise SystemExit("Could not find the kernel section in BoardConfig.mk")
-              content = content.replace(anchor, anchor + setting + "\\n", 1)
-              path.write_text(content)
+              # Append the variable instead of relying on a comment/section marker.
+              # BoardConfig.mk is parsed as a whole, so its position is immaterial.
+              path.write_text(content.rstrip() + "\\n\\n" + setting + "\\n")
           print("Configured TARGET_KERNEL_SOURCE to use the device's supplied prebuilt-kernel headers wrapper.")
           PY
           grep -n "TARGET_KERNEL_SOURCE" "$DEVICE_BOARD_CONFIG"
