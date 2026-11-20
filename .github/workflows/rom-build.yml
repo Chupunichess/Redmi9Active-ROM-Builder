@@ -127,11 +127,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The bundled Android 13 Clang (r3289846) requires the legacy
+          # ncurses 5 ABI, which Ubuntu 24.04 no longer ships in its own archive.
+          # Install only these compatibility runtime libraries from Ubuntu 22.04.
+          echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy universe" | sudo tee /etc/apt/sources.list.d/jammy-compat.list
           sudo apt-get update
+          sudo apt-get install -y libncurses5 libtinfo5
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
             git git-lfs gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses6 libtinfo6 \
+            lib32z1-dev libelf-dev liblz4-tool \
             libssl-dev libxml2 libxml2-utils lzop pngcrush python-is-python3 rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev openjdk-11-jdk
           git lfs install
