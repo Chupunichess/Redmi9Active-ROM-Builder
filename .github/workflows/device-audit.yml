@@ -1,4 +1,4 @@
-name: Device source audit
+name: LineageOS 20 source audit
 
 on:
   workflow_dispatch:
@@ -11,82 +11,39 @@ permissions:
   contents: read
 
 concurrency:
-  group: device-audit-${{ github.ref }}
+  group: lineage20-source-audit-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  audit:
-    name: Audit cattail device sources
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  source-audit:
+    name: Validate cattail source dependencies
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - name: Check out builder configuration
         uses: actions/checkout@v4
 
-      - name: Inspect runner capacity
+      - name: Record runner capacity
         shell: bash
         run: |
           set -euo pipefail
           echo "Runner: $(uname -a)"
-          echo
-          echo "CPU:"
-          nproc
-          echo
-          echo "Memory:"
+          echo "CPU threads: $(nproc)"
           free -h
-          echo
-          echo "Disk:"
           df -h /
-          echo
-          echo "Available inode count:"
           df -i /
 
-      - name: Validate upstream device tree
+      - name: Audit LineageOS 20 device source set
         shell: bash
         run: |
           set -euo pipefail
-          REPO="https://github.com/crdroidandroid/android_device_xiaomi_blossom.git"
-          BRANCH="17.0"
-          git clone --depth=1 --single-branch --branch "$BRANCH" "$REPO" device-tree
-          test -s device-tree/README.md
-          test -s device-tree/BoardConfig.mk
-          test -s device-tree/AndroidProducts.mk
-          test -s device-tree/manifest.xml
+          bash scripts/audit-lineage20.sh "${RUNNER_TEMP}/blossom-lineage20-audit" 2>&1 | tee source-audit.log
 
-          echo "Checking that the tree documents Redmi 9 Active / cattail..."
-          grep -n -E 'cattail|Redmi 9 Active' device-tree/README.md
-
-          echo "Checking MTK platform and prebuilt kernel configuration..."
-          grep -n -E 'TARGET_BOARD_PLATFORM|TARGET_PREBUILT_KERNEL|TARGET_PREBUILT_DTB|BOARD_PREBUILT_DTBOIMAGE|TARGET_FORCE_PREBUILT_KERNEL' device-tree/BoardConfig.mk
-
-          echo "Checking product lunch choices..."
-          grep -n -E 'PRODUCT_MAKEFILES|COMMON_LUNCH_CHOICES' device-tree/AndroidProducts.mk
-
-      - name: Extract source dependency hints
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Device-tree remotes and project declarations:"
-          if [ -f device-tree/roomservice.xml ]; then
-            cat device-tree/roomservice.xml
-          else
-            echo "No roomservice.xml in candidate tree."
-          fi
-          echo
-          echo "Kernel/vendor references in tracked configuration:"
-          grep -RInE 'kernel|vendor/xiaomi|vendor/mediatek|proprietary|github.com|gitlab.com'             device-tree/BoardConfig.mk device-tree/device.mk device-tree/*.mk             device-tree/*.xml device-tree/README.md 2>/dev/null || true
-
-      - name: Save audit report
+      - name: Upload source audit log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cattail-device-audit
-          path: |
-            device-tree/README.md
-            device-tree/BoardConfig.mk
-            device-tree/AndroidProducts.mk
-            device-tree/manifest.xml
-            device-tree/device.mk
-            device-tree/*.xml
+          name: lineage20-source-audit-log
+          path: source-audit.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
