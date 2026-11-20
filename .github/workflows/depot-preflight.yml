@@ -9,7 +9,7 @@ permissions:
 jobs:
   preflight:
     name: Inspect Depot build machine
-    runs-on: depot-ubuntu-22.04-16
+    runs-on: depot-ubuntu-22.04-64
     timeout-minutes: 10
 
     steps:
