@@ -1,13 +1,7 @@
-name: LineageOS 20 ROM build
+name: LineageOS 20 build capacity check
 
 on:
   workflow_dispatch:
-    inputs:
-      build_rom:
-        description: "Attempt the full source sync and ROM compile (requires a suitably large runner)"
-        required: true
-        type: boolean
-        default: false
   push:
     branches:
       - main
@@ -15,41 +9,18 @@ on:
       - ".github/workflows/rom-build.yml"
 
 permissions:
-  contents: write
-
-concurrency:
-  group: lineage20-rom-build
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  build:
-    name: Check capacity and optionally build blossom
+  capacity:
+    name: Check whether free GitHub runner can build Android
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
-    env:
-      WORKSPACE: ${{ runner.temp }}/lineage20-src
-      ROM_MANIFEST_URL: https://github.com/LineageOS/android.git
-      ROM_BRANCH: lineage-20
-
+    timeout-minutes: 10
     steps:
-      - name: Check out builder configuration
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Reclaim optional runner disk space
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Disk before cleanup:"
-          df -h /
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
-          sudo rm -rf /usr/local/lib/android/sdk /usr/share/swift /usr/local/.ghcup
-          docker system prune --all --force || true
-          sudo apt-get clean
-          echo "Disk after cleanup:"
-          df -h /
-
-      - name: Evaluate ROM build requirements
-        id: capacity
+      - name: Measure runner capacity
         shell: bash
         run: |
           set -euo pipefail
@@ -57,117 +28,25 @@ jobs:
           RAM_GB="$(awk '/MemTotal/ { printf "%d", $2 / 1024 / 1024 }' /proc/meminfo)"
           CPU_THREADS="$(nproc)"
 
-          echo "disk_gb=$DISK_GB" >> "$GITHUB_OUTPUT"
-          echo "ram_gb=$RAM_GB" >> "$GITHUB_OUTPUT"
-          echo "cpu_threads=$CPU_THREADS" >> "$GITHUB_OUTPUT"
-
-          {
-            echo "## LineageOS 20 build capacity"
-            echo
-            echo "| Resource | Available | Planning requirement |"
-            echo "|---|---:|---:|"
-            echo "| Free disk | ${DISK_GB} GB | 400 GB |"
-            echo "| RAM | ${RAM_GB} GB | 64 GB |"
-            echo "| CPU threads | ${CPU_THREADS} | 8+ recommended |"
-            echo
-            echo "The disk and RAM figures are based on the current Android Open Source Project build guidance."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "## LineageOS 20 ROM build feasibility" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource | Measured | Android build planning baseline |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---:|---:|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Free disk | ${DISK_GB} GB | 400 GB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| RAM | ${RAM_GB} GB | 64 GB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CPU threads | ${CPU_THREADS} | 8+ recommended |" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
 
           if (( DISK_GB >= 400 && RAM_GB >= 64 )); then
-            echo "build_capable=true" >> "$GITHUB_OUTPUT"
-            echo "Runner passes the resource gate."
+            echo "**Capacity check passed.** The runner meets the planning baseline." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "build_capable=false" >> "$GITHUB_OUTPUT"
-            {
-              echo
-              echo "**Build blocked:** this GitHub-hosted runner does not meet the minimum planning threshold."
-              echo "No Android source sync or compilation will be started."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::Runner capacity is insufficient. Skipping full ROM build."
+            echo "**Capacity check failed.** No full Android source sync or compilation was attempted." >> "$GITHUB_STEP_SUMMARY"
+            echo "The free hosted runner is too small for this ROM build." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Insufficient disk/RAM for full Android source sync and compilation."
           fi
 
-      - name: Install repo launcher
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o repo
-          sudo install -m 0755 repo /usr/local/bin/repo
-          repo version
-
-      - name: Initialize LineageOS 20 source tree
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$WORKSPACE"
-          cd "$WORKSPACE"
-          repo init --depth=1 -u "$ROM_MANIFEST_URL" -b "$ROM_BRANCH"
-          mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/manifests/lineage-20-blossom.xml" .repo/local_manifests/blossom.xml
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          ET.parse(".repo/local_manifests/blossom.xml")
-          print("Local blossom manifest XML is valid.")
-          PY
-
-      - name: Sync LineageOS 20 and device sources
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$WORKSPACE"
-          repo sync -c -j2 --no-clone-bundle --no-tags --fail-fast
+          echo
+          echo "Runner details:"
+          nproc
+          free -h
           df -h /
-          du -sh "$WORKSPACE"
-
-      - name: Install Android build dependencies
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git git-lfs gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses-dev libssl-dev libxml2 \
-            libxml2-utils lzop pngcrush python-is-python3 rsync schedtool \
-            squashfs-tools xsltproc zip zlib1g-dev openjdk-11-jdk
-          git lfs install
-
-      - name: Compile LineageOS 20 for blossom
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$WORKSPACE"
-          export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-          export PATH="$JAVA_HOME/bin:$PATH"
-          export USE_CCACHE=0
-          source build/envsetup.sh
-          lunch lineage_blossom-userdebug
-          mka bacon -j2
-          mkdir -p "$GITHUB_WORKSPACE/release-files"
-          mapfile -t ROM_ZIPS < <(find out/target/product/blossom -maxdepth 1 -type f -name '*.zip' -size +100M)
-          if (( ${#ROM_ZIPS[@]} == 0 )); then
-            echo "::error::No ROM ZIP was produced."
-            exit 1
-          fi
-          cp "${ROM_ZIPS[@]}" "$GITHUB_WORKSPACE/release-files/"
-          cd "$GITHUB_WORKSPACE/release-files"
-          sha256sum *.zip > SHA256SUMS.txt
-
-      - name: Publish ROM release
-        if: ${{ steps.capacity.outputs.build_capable == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_rom && success() }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: lineage20-${{ github.run_number }}
-          name: "LineageOS 20 for blossom - build ${{ github.run_number }}"
-          body: |
-            Experimental unofficial LineageOS 20 build for the Xiaomi blossom family.
-            Intended variant: Redmi 9 Active (cattail).
-            The artifact is not independently verified as bootable. Verify device compatibility,
-            checksum and recovery/rollback options before flashing.
-          files: release-files/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
