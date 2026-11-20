@@ -1,0 +1,70 @@
+name: Depot Runner Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Inspect Depot build machine
+    runs-on: depot-ubuntu-22.04-16
+    timeout-minutes: 10
+
+    steps:
+      - name: Inspect operating system
+        shell: bash
+        run: |
+          echo "===== OPERATING SYSTEM ====="
+          cat /etc/os-release
+
+      - name: Inspect CPU
+        shell: bash
+        run: |
+          echo "===== CPU INFORMATION ====="
+          nproc
+          lscpu
+
+      - name: Inspect memory
+        shell: bash
+        run: |
+          echo "===== MEMORY ====="
+          free -h
+
+      - name: Inspect disk
+        shell: bash
+        run: |
+          echo "===== DISK SPACE ====="
+          df -hT
+          echo
+          echo "===== ROOT DISK CAPACITY ====="
+          df -B1 --output=size,used,avail,pcent,target /
+          echo
+          echo "===== BLOCK DEVICES ====="
+          lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS
+
+      - name: Inspect installed tools
+        shell: bash
+        run: |
+          echo "===== BUILD TOOLS ====="
+          git --version
+          curl --version | head -1
+          python3 --version
+          java -version 2>&1 || true
+
+      - name: Inspect disk usage
+        shell: bash
+        run: |
+          echo "===== LARGEST DIRECTORIES ====="
+          sudo du -xhd1 /opt /usr/local /home/runner 2>/dev/null | sort -h | tail -25 || true
+
+      - name: Preflight summary
+        shell: bash
+        run: |
+          echo "===== PREFLIGHT COMPLETE ====="
+          echo "CPU cores: $(nproc)"
+          echo "Available memory:"
+          free -h
+          echo "Available disk:"
+          df -h /
