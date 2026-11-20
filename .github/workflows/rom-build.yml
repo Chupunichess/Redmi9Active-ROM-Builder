@@ -20,13 +20,13 @@ concurrency:
 jobs:
   build:
     name: Sync and compile LineageOS 20 for blossom
-    runs-on: ubuntu-22.04
+    runs-on: depot-ubuntu-22.04-32
     timeout-minutes: 360
     env:
       WORKSPACE: ${{ github.workspace }}/../lineage20-src
       ROM_MANIFEST_URL: https://github.com/LineageOS/android.git
       ROM_BRANCH: lineage-20.0
-      BUILD_JOBS: "2"
+      BUILD_JOBS: "24"
 
     steps:
       - name: Check out build configuration
@@ -39,7 +39,7 @@ jobs:
           echo "Disk before cleanup:"
           df -h /
 
-          # Remove preinstalled toolchains that this Android build does not use.
+          # Remove preinstalled toolchains not needed for an Android 13 build.
           sudo rm -rf \
             /usr/share/dotnet /usr/lib/dotnet /opt/dotnet \
             /opt/ghc /usr/local/.ghcup \
@@ -49,21 +49,17 @@ jobs:
             /usr/local/share/chromium /opt/google/chrome \
             /usr/lib/firefox /usr/lib/chromium /usr/lib/chromium-browser
 
-          # Tool-cache runtimes are not required: the runner carries its own
-          # Node runtimes for Actions; Android uses prebuilts plus apt JDK 11.
+          # Actions supplies its own Node runtime; Android uses JDK 11.
           sudo rm -rf /opt/hostedtoolcache/*
-
-          # Drop disposable caches and container layers.
           sudo rm -rf /home/runner/.cache/* /root/.cache/*
           sudo rm -rf /var/lib/apt/lists/*
           docker system prune --all --force --volumes || true
           sudo apt-get clean
 
-          echo "Largest remaining top-level directories:"
-          sudo du -xhd1 /opt /usr/local /home/runner 2>/dev/null | sort -h | tail -30 || true
-          echo "Disk after aggressive cleanup:"
+          echo "Disk after cleanup:"
           df -h /
-          echo "Memory available:"
+          echo "CPU and memory:"
+          nproc
           free -h
 
       - name: Install repo launcher
@@ -96,7 +92,7 @@ jobs:
           cd "$WORKSPACE"
           echo "Disk before repo sync:"
           df -h /
-          repo sync -c -j2 --no-clone-bundle --no-tags --fail-fast 2>&1 | tee "$GITHUB_WORKSPACE/source-sync.log"
+          repo sync -c -j8 --no-clone-bundle --no-tags --fail-fast 2>&1 | tee "$GITHUB_WORKSPACE/source-sync.log"
           echo "Disk after repo sync:"
           df -h /
           du -sh "$WORKSPACE"
@@ -117,6 +113,18 @@ jobs:
           java -version
           echo "Disk after dependencies:"
           df -h /
+
+      - name: Check free disk before compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          AVAILABLE_KB=$(df -Pk / | awk 'NR==2 {print $4}')
+          AVAILABLE_GB=$((AVAILABLE_KB / 1024 / 1024))
+          echo "Available disk before compilation: ${AVAILABLE_GB} GiB"
+          if (( AVAILABLE_GB < 35 )); then
+            echo "::error::Only ${AVAILABLE_GB} GiB remains. Stopping before compilation to avoid a predictable disk-full failure."
+            exit 1
+          fi
 
       - name: Configure and compile ROM
         shell: bash
@@ -141,7 +149,7 @@ jobs:
           mapfile -t ROM_ZIPS < <(find "$PRODUCT_OUT" -maxdepth 1 -type f -name '*.zip' -size +100M)
           if (( ${#ROM_ZIPS[@]} == 0 )); then
             echo "::error::Build finished without producing a ROM ZIP larger than 100 MB."
-            find "$PRODUCT_OUT" -maxdepth 1 -type f -printf '%f %s bytes\n' || true
+            find "$PRODUCT_OUT" -maxdepth 1 -type f -printf '%f %s bytes\\n' || true
             exit 1
           fi
           cp "${ROM_ZIPS[@]}" "$GITHUB_WORKSPACE/release-files/"
